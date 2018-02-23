@@ -1,114 +1,109 @@
+/*
+	Generate sin wave.
+
+	Microcontroller: ATmega32
+	Clock: 8 MHz
+	External hardware: RC filter on PB3
+	Compiler: AVR GCC
+
+	http://aquaticus.info/pwm-sine-wave
+
+	$Revision: 128 $
+*/
+
+#include <stdlib.h>
 #include <avr/io.h>
 #include <util/delay.h>
-#include <avr/pgmspace.h>
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
+#include <math.h>
+#include <stdio.h>
 
-#include "sin.h"
+/// Number of probes for one period of sine wave
+#define SAMPLE_RES 252
+#define PRESCALAR 1
 
-int sampleRate;
+/* InitSinTable() used to initiate the table */
+uint8_t  wave[SAMPLE_RES];
 
-/**
- * Function To Initialize TIMER0 In Fast
- * PWWM Mode.
- */
-void InitPWM()
-{
-   /*
-   TCCR0 - Timer Counter Control Register (TIMER0)
-   -----------------------------------------------
-
-   BITS DESCRIPTION
-
-   NO:   NAME   DESCRIPTION
-   --------------------------
-   BIT 7 : FOC0   Force Output Compare [Not used in this example]
-   BIT 6 : WGM00  Wave form generartion mode [SET to 1]
-
-   BIT 5 : COM01  Compare Output Mode        [SET to 1]
-   BIT 4 : COM00  Compare Output Mode        [SET to 0]
-   BIT 3 : WGM01  Wave form generartion mode [SET to 1]
-   BIT 2 : CS02   Clock Select               [SET to 0]
-   BIT 1 : CS01   Clock Select               [SET to 0]
-   BIT 0 : CS00   Clock Select               [SET to 1]
-
-   The above settings are for
-   --------------------------
-   Timer Clock = CPU Clock (No Prescalling)
-   Mode        = Fast PWM
-   PWM Output  = Non Inverted
-
-   */
-
-
-   TCCR0|=(1<<WGM00)|(1<<WGM01)|(1<<COM01)|(1<<CS00);
-
-   //Set OC0 PIN as output. It is  PB3 on ATmega16 ATmega32
-   DDRB|=(1<<PB3);
-}
+/// Current wave sample number
+static uint8_t sample = 0;
 
 float sineWaveSample(int sampleNumber, int sampleFreq) {
     return sin(sampleNumber / (sampleFreq / (M_PI * 2)));
 }
 
-void playSineWave(int frequency, int duration, float volume) {
-    //Find the number of samples required
-    int sampleCount = sampleRate * duration;
+/**
+	Generate sin table in range 0-359 deg.
 
-    //Create an array with that length
-    float buffer[sampleCount];
-
-    //Find the duration of a single wave
-    int sampleFreq = sampleRate / frequency;
-
-    //Generate all samples
-    for (int i = 0; i < sampleCount; i++) {
-        buffer[i] = sineWaveSample(i, sampleFreq) * volume;
-    }
-
-    //Output to PWM
-}
-
-void main()
+	In fact only values 0-89 could be computed, but to make things
+	simpler entire range is calculated.
+*/
+void InitSinTable()
 {
-   uint8_t i;
+	//sin period is 2*PI
+	// const float step = (2*M_PI)/(float)SAMPLE_RES;
+    float zero = 128.0;
 
-   InitPWM();
+	float s;
 
-   int frequency = 440;
-   sampleRate = 44100;
-   int duration = 1000;
-   int sampleFreq = frequency/sampleRate;
+    uint16_t sampleRate = F_CPU/PRESCALAR;
+    int sampleFreq = sampleRate/440;
 
-   while(1)
-   {
-
-
-        uint8_t delay,n;
-
-        // for(delay=1;delay<=50;delay++)
-        // {
-        //  for(n=0;n<(51-delay);n++)
-        //  {
-        //     for(i=0;i<=254;i++)
-        //     {
-        //        OCR0 = sine + i;
-        //        _delay_loop_2(delay);
-        //
-        //     }
-        //  }
-        // }
-        for(delay=50;delay>=2;delay--)
-        {
-         for(n=0;n<(51-delay);n++)
-         {
-            for(i=0;i<=254;i++)
-            {
-               OCR0= sine + i;
-               // OCR0= sineWaveSample(i, ) * 128;
-               _delay_loop_2(delay);
-            }
-         }
-        }
-
-
-   }
+	//in radians
+	for(int sampleNumber = 0; sampleNumber < SAMPLE_RES; sampleNumber++)
+	{
+		// s = sin( sampleNumber * step );
+        //calculate OCR value (in range 0-255, timer0 is 8 bit)
+        // wave[sampleNumber] = (uint8_t) round(zero + (s*127.0));
+		s = sineWaveSample(sampleNumber, sampleFreq);
+        wave[sampleNumber] = (uint8_t) round(zero + (s*127.0));
+	}
 }
+
+/**
+ Initializes timer0 for PWM generation
+*/
+void InitPWM()
+{
+	DDRB |= _BV(PB3); //OC0 pin as output
+
+	TCCR0 |= _BV(WGM01) | _BV(WGM00); //mode 1, Fast PWM
+
+	TCCR0 |= _BV(COM01); //Clear OC0 on compare match, set OC0 at BOTTOM
+
+	TCCR0 |= _BV(CS00); //prescaler divider 1
+
+	TIMSK |= _BV(TOIE0); //Timer/Counter0 Overflow Interrupt Enable
+}
+
+int main()
+{
+	InitPWM();
+
+	InitSinTable();
+
+
+	sei(); //enable global interruprts
+
+	//go to sleep mode
+	while(1)
+	{
+		sleep_mode();
+	}
+}
+
+/**
+	Interrupt routine. Needed to synchronize change of OCR0 with the end of period.
+*/
+
+ISR(TIMER0_OVF_vect)
+{
+	OCR0 = wave[sample];
+
+	sample++;
+
+	if( sample >= SAMPLE_RES-1 )
+		sample = 0;
+}
+
