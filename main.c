@@ -20,7 +20,7 @@
 #include <stdio.h>
 
 /// Number of probes for one period of sine wave
-#define SAMPLE_RES 252
+#define SAMPLE_RES 219
 #define PRESCALAR 1
 
 /* InitSinTable() used to initiate the table */
