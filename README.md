@@ -1,2 +1,4 @@
 # avrSynth
-A audio synthesizer for the ATMEGA16a
+An audio synthesizer for the ATMEGA16a
+
+**STILL WORK IN PROGRESS!**
