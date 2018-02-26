@@ -1,4 +1,4 @@
-#include <avr/pgmspace.h>
+// Wavetable for sine wave
 
 uint8_t sine[256] = {
                      127,
